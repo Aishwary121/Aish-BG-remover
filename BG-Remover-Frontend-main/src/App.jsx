@@ -52,8 +52,7 @@ function App() {
       const res = await fetch('https://aish-bg-remover.onrender.com/remove-bg', {
         method: 'POST',
         body: formData,
-        mode: 'cors',
-        credentials: 'include',
+        // Let browser handle CORS automatically
       });
       
       const blob = await res.blob();
