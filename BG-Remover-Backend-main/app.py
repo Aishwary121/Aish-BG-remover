@@ -1,19 +1,26 @@
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from rembg import remove
-from PIL import Image
 import base64
 from io import BytesIO
 import os
 
 app = Flask(__name__)
+CORS(app, origins=["*"])
 
-# Enable CORS
-CORS(app,
-     origins=["*"],
-     allow_headers=["Content-Type", "Authorization", "Accept"],
-     methods=["GET", "POST", "OPTIONS"],
-     supports_credentials=True)
+# Global variables for lazy loading
+remove_bg_function = None
+Image = None
+
+def load_ml_dependencies():
+    """Load heavy ML dependencies only when needed"""
+    global remove_bg_function, Image
+    if remove_bg_function is None:
+        print("Loading ML dependencies...")
+        from rembg import remove
+        from PIL import Image as PILImage
+        remove_bg_function = remove
+        Image = PILImage
+        print("ML dependencies loaded!")
 
 @app.route('/')
 def home():
@@ -21,7 +28,7 @@ def home():
 
 @app.route('/health')
 def health():
-    return "OK", 200
+    return jsonify({"status": "healthy"}), 200
 
 @app.route('/remove-bg', methods=['POST', 'OPTIONS'])
 def remove_background():
@@ -29,54 +36,37 @@ def remove_background():
         return '', 200
 
     try:
-        # Check if the request contains files (FormData)
-        if 'image' in request.files:
-            # Handle file upload
-            file = request.files['image']
-            if file.filename == '':
-                return jsonify({'error': 'No file selected'}), 400
+        # Load dependencies on first use
+        load_ml_dependencies()
 
-            # Read image from file
-            input_image = Image.open(file.stream)
+        if 'image' not in request.files:
+            return jsonify({'error': 'No image file provided'}), 400
 
-        elif request.is_json:
-            # Handle JSON with base64 image
-            data = request.get_json()
-            if not data or 'image' not in data:
-                return jsonify({'error': 'No image provided'}), 400
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
 
-            # Decode base64 image
-            image_string = data['image']
-            if ',' in image_string:
-                image_string = image_string.split(',')[1]
+        # Process image
+        input_image = Image.open(file.stream)
+        output_image = remove_bg_function(input_image)
 
-            image_data = base64.b64decode(image_string)
-            input_image = Image.open(BytesIO(image_data))
-        else:
-            return jsonify({'error': 'Invalid request format'}), 400
+        # Save to bytes
+        img_io = BytesIO()
+        output_image.save(img_io, format='PNG')
+        img_io.seek(0)
 
-        # Remove background
-        output_image = remove(input_image)
-
-        # Convert to PNG bytes
-        img_byte_arr = BytesIO()
-        output_image.save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0)
-
-        # Return the image as a file
-        response = make_response(img_byte_arr.getvalue())
-        response.headers.set('Content-Type', 'image/png')
-        response.headers.set('Content-Disposition', 'attachment', filename='removed-bg.png')
-        return response
+        return send_file(
+            img_io,
+            mimetype='image/png',
+            as_attachment=True,
+            download_name='removed-bg.png'
+        )
 
     except Exception as e:
-        print(f"Error processing image: {str(e)}")
+        print(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/')
-def home():
-    return 'Background Remover API'
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    print(f"Starting app on port {port}")
+    app.run(host="0.0.0.0", port=port)
