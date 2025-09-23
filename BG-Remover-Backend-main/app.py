@@ -7,8 +7,16 @@ import os
 
 app = Flask(__name__)
 
-# Simple CORS setup
-CORS(app)
+# Configure CORS specifically for your Vercel app
+CORS(app,
+     origins=[
+         "https://aish-bg-remover.vercel.app",  # Your specific Vercel URL
+         "https://*.vercel.app",  # Any Vercel preview URLs
+         "http://localhost:3000",  # Local development
+         "http://localhost:5173"   # Vite local development
+     ],
+     allow_headers=["Content-Type"],
+     methods=["GET", "POST", "OPTIONS"])
 
 @app.after_request
 def after_request(response):
