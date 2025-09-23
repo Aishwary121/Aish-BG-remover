@@ -3,3 +3,4 @@ pillow
 onnxruntime
 flask
 flask-cors
+gunicorn
