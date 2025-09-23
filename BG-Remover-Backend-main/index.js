@@ -151,17 +151,7 @@ const app = express();
 // Middleware to parse JSON bodies
 app.use(express.json());
 
-app.use(
-  cors({
-    origin: [
-      "https://bg-remover-frontend-seven.vercel.app",
-      "http://localhost:5173",
-      "http://localhost:5174",
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-  })
-);
+app.use(cors());
 
 // Your routes
 app.get("/", (req, res) => {
