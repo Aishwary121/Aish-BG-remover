@@ -1,63 +1,77 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
+from rembg import remove
+from PIL import Image
+import base64
+from io import BytesIO
 import os
-import tempfile
 
 app = Flask(__name__)
-CORS(app)  # Allow all origins
 
-# Lazy load heavy imports
-rembg = None
+# Enable CORS
+CORS(app,
+     origins=["*"],
+     allow_headers=["Content-Type", "Authorization", "Accept"],
+     methods=["GET", "POST", "OPTIONS"],
+     supports_credentials=True)
 
-def load_dependencies():
-    global rembg
-    if rembg is None:
-        from rembg import remove
-        rembg = remove
+@app.route('/')
+def home():
+    return "Hello from Aish BG Remover!"
 
 @app.route('/health')
 def health():
     return "OK", 200
 
-@app.route('/remove-bg', methods=['POST'])
+@app.route('/remove-bg', methods=['POST', 'OPTIONS'])
 def remove_background():
-    load_dependencies()  # Load heavy imports only when needed
-
-    if 'image' not in request.files:
-        return {'error': 'No image uploaded'}, 400
-
-    file = request.files['image']
-    if file.filename == '':
-        return {'error': 'No image selected'}, 400
-
-    # Save uploaded file to temp
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_input:
-        file.save(temp_input.name)
-        input_path = temp_input.name
-
-    # Process
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_output:
-        output_path = temp_output.name
+    if request.method == 'OPTIONS':
+        return '', 200
 
     try:
-        with open(input_path, 'rb') as i:
-            input_image = i.read()
+        # Check if the request contains files (FormData)
+        if 'image' in request.files:
+            # Handle file upload
+            file = request.files['image']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
 
-        output = remove(input_image)
+            # Read image from file
+            input_image = Image.open(file.stream)
 
-        with open(output_path, 'wb') as o:
-            o.write(output)
+        elif request.is_json:
+            # Handle JSON with base64 image
+            data = request.get_json()
+            if not data or 'image' not in data:
+                return jsonify({'error': 'No image provided'}), 400
 
-        # Send file
-        return send_file(output_path, mimetype='image/png', as_attachment=True, download_name='no-bg.png')
+            # Decode base64 image
+            image_string = data['image']
+            if ',' in image_string:
+                image_string = image_string.split(',')[1]
+
+            image_data = base64.b64decode(image_string)
+            input_image = Image.open(BytesIO(image_data))
+        else:
+            return jsonify({'error': 'Invalid request format'}), 400
+
+        # Remove background
+        output_image = remove(input_image)
+
+        # Convert to PNG bytes
+        img_byte_arr = BytesIO()
+        output_image.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+
+        # Return the image as a file
+        response = make_response(img_byte_arr.getvalue())
+        response.headers.set('Content-Type', 'image/png')
+        response.headers.set('Content-Disposition', 'attachment', filename='removed-bg.png')
+        return response
+
     except Exception as e:
-        return {'error': str(e)}, 500
-    finally:
-        # Cleanup
-        if os.path.exists(input_path):
-            os.unlink(input_path)
-        if os.path.exists(output_path):
-            os.unlink(output_path)
+        print(f"Error processing image: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/')
 def home():
