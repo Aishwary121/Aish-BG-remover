@@ -185,11 +185,11 @@ app.post("/remove-bg", upload.single("image"), (req, res) => {
   });
 });
 
-// MongoDB connection
-mongoose
-  .connect(MONGOURL)
-  .then(() => console.log("Database connected successfully"))
-  .catch((err) => console.log("Mongo error:", err));
+// MongoDB connection (commented out for Render deployment)
+// mongoose
+//   .connect(MONGOURL)
+//   .then(() => console.log("Database connected successfully"))
+//   .catch((err) => console.log("Mongo error:", err));
 
 app.listen(PORT || 5000, () => {
   console.log(`Server running at http://localhost:${PORT || 5000}`);
