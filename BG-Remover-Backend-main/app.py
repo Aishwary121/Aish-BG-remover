@@ -1,14 +1,28 @@
 from flask import Flask, request, send_file
 from flask_cors import CORS
-from rembg import remove
 import os
 import tempfile
 
 app = Flask(__name__)
 CORS(app)  # Allow all origins
 
+# Lazy load heavy imports
+rembg = None
+
+def load_dependencies():
+    global rembg
+    if rembg is None:
+        from rembg import remove
+        rembg = remove
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
 @app.route('/remove-bg', methods=['POST'])
 def remove_background():
+    load_dependencies()  # Load heavy imports only when needed
+
     if 'image' not in request.files:
         return {'error': 'No image uploaded'}, 400
 
