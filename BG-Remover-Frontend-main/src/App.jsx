@@ -50,8 +50,7 @@ function App() {
 
     try {
       console.log('Starting upload to backend...');
-      const apiUrl = import.meta.env.VITE_API_URL || 'https://aish-bg-remover-1.onrender.com';
-      const res = await fetch(`${apiUrl}/remove-bg`, {
+      const res = await fetch('https://aish-bg-remover-1.onrender.com/remove-bg', {
         method: 'POST',
         body: formData,
         // Let browser handle CORS automatically
