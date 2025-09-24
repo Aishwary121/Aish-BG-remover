@@ -194,6 +194,10 @@ const upload = multer({ dest: "uploads/" });
 });
 
 app.post("/remove-bg", upload.single("image"), async (req, res) => {
+  console.log("POST /remove-bg received");
+  console.log("Headers:", req.headers);
+  console.log("File:", req.file ? "File received" : "No file");
+
   try {
     console.log("Request received from:", req.headers.origin);
 

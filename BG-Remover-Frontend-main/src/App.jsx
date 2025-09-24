@@ -49,25 +49,28 @@ function App() {
     formData.append('image', image);
 
     try {
-      console.log('Starting upload to backend...');
+      console.log('Starting upload...');
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
-      console.log('Backend URL:', backendUrl);
+
       const res = await fetch(`${backendUrl}/remove-bg`, {
         method: 'POST',
-        body: formData,
-        // Let browser handle CORS automatically
+        body: formData
+        // No headers! Let browser set them automatically for FormData
       });
-      console.log('Fetch response status:', res.status);
-      
+
+      console.log('Response status:', res.status);
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('Server error:', errorText);
+        throw new Error(errorText || `Server responded with ${res.status}`);
+      }
+
       const blob = await res.blob();
       setResult(URL.createObjectURL(blob));
-      
-      if (!res.ok) {
-        throw new Error(`Server responded with ${res.status}`);
-      }
     } catch (error) {
-      console.error('Error:', error);
-      alert('Something went wrong!');
+      console.error('Upload error:', error);
+      alert(`Error: ${error.message}`);
     } finally {
       setLoading(false);
     }
