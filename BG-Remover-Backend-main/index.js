@@ -143,54 +143,61 @@ import cors from "cors";
 import fs from "fs";
 import { exec } from "child_process";
 import path from "path";
-import mongoose from "mongoose";
-import { MONGOURL, PORT } from "./key.js";
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Middleware to parse JSON bodies
 app.use(express.json());
 
-app.use(cors());
+// CORS configuration for production
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true
+}));
 
-// Your routes
 app.get("/", (req, res) => {
-  res.send("Hello World");
+  res.send("BG Remover API is running!");
 });
 
 const upload = multer({ dest: "uploads/" });
 
-app.post("/remove-bg", upload.single("image"), (req, res) => {
-  const inputPath = req.file.path;
-  const outputPath = `outputs/${req.file.filename}.png`;
-  console.log(inputPath);
-  console.log(outputPath);
+// Ensure directories exist
+if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
+if (!fs.existsSync("outputs")) fs.mkdirSync("outputs");
 
-  if (!fs.existsSync("outputs")) {
-    fs.mkdirSync("outputs");
+app.post("/remove-bg", upload.single("image"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).send("No image uploaded");
   }
 
-  const command = `py remove_bg.py ${inputPath} ${outputPath}`;
+  const inputPath = req.file.path;
+  const outputPath = `outputs/${req.file.filename}.png`;
+
+  // Fix: Use python3 for Render and proper path
+  const pythonScript = path.join(__dirname, 'remove_bg.py');
+  const command = `python3 ${pythonScript} ${inputPath} ${outputPath}`;
 
   exec(command, (err, stdout, stderr) => {
     if (err) {
-      console.error("Error running Python:", stderr);
-      return res.status(500).send("Error processing image");
+      console.error("Python error:", stderr);
+      return res.status(500).json({ error: "Error processing image", details: stderr });
     }
 
-    res.sendFile(path.resolve(outputPath), () => {
-      fs.unlinkSync(inputPath);
-      fs.unlinkSync(outputPath);
+    res.sendFile(path.resolve(outputPath), (err) => {
+      // Clean up files
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     });
   });
 });
 
-// MongoDB connection (commented out for Render deployment)
-// mongoose
-//   .connect(MONGOURL)
-//   .then(() => console.log("Database connected successfully"))
-//   .catch((err) => console.log("Mongo error:", err));
-
-app.listen(PORT || 5000, () => {
-  console.log(`Server running at http://localhost:${PORT || 5000}`);
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
