@@ -150,33 +150,25 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// IMPORTANT: CORS first, before any routes!
+// CRITICAL: Enable CORS for ALL origins with file upload support
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin) return callback(null, true);
-
-    const allowedOrigins = [
-      'https://aish-bg-remover-gik8.vercel.app',
-      'http://localhost:5173',
-      'http://localhost:5174'
-    ];
-
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Allow all for now
-    }
-  },
+  origin: true, // Allow all origins
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
+  maxAge: 86400
 }));
 
-app.use(express.json());
+// Handle preflight
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.sendStatus(200);
+});
 
-// Preflight handling
-app.options('*', cors());
+app.use(express.json());
 
 app.get("/", (req, res) => {
   res.send("BG Remover API is running!");
@@ -186,57 +178,91 @@ app.get("/test", (req, res) => {
   res.json({ status: "API working", cors: "enabled" });
 });
 
-const upload = multer({ dest: "uploads/" });
-
-// Create directories
-['uploads', 'outputs'].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+// Configure multer with error handling
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + '-' + file.originalname);
+  }
 });
 
-app.post("/remove-bg", upload.single("image"), async (req, res) => {
-  console.log("POST /remove-bg received");
-  console.log("Headers:", req.headers);
-  console.log("File:", req.file ? "File received" : "No file");
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
-  try {
-    console.log("Request received from:", req.headers.origin);
+// Create output directory
+if (!fs.existsSync('outputs')) fs.mkdirSync('outputs');
 
-    if (!req.file) {
-      return res.status(400).json({ error: "No image uploaded" });
+// Main endpoint with detailed error handling
+app.post("/remove-bg", upload.single("image"), (req, res) => {
+  // Set CORS headers explicitly for this route
+  res.header('Access-Control-Allow-Origin', '*');
+
+  console.log("POST /remove-bg - Request received");
+
+  if (!req.file) {
+    console.log("No file in request");
+    return res.status(400).json({ error: "No image file uploaded" });
+  }
+
+  console.log("File received:", req.file.filename);
+
+  const inputPath = req.file.path;
+  const outputPath = path.join('outputs', `${path.parse(req.file.filename).name}.png`);
+  const pythonScript = path.join(__dirname, 'remove_bg.py');
+
+  // Check if Python script exists
+  if (!fs.existsSync(pythonScript)) {
+    console.error("Python script not found at:", pythonScript);
+    fs.unlinkSync(inputPath);
+    return res.status(500).json({ error: "Server configuration error" });
+  }
+
+  const command = `python3 "${pythonScript}" "${inputPath}" "${outputPath}"`;
+  console.log("Executing:", command);
+
+  exec(command, { maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error("Python error:", stderr || err.message);
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+      return res.status(500).json({
+        error: "Failed to process image",
+        details: stderr || err.message
+      });
     }
 
-    const inputPath = req.file.path;
-    const outputPath = path.join('outputs', `${req.file.filename}.png`);
-    const pythonScript = path.join(__dirname, 'remove_bg.py');
+    // Check if output file was created
+    if (!fs.existsSync(outputPath)) {
+      console.error("Output file not created");
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+      return res.status(500).json({ error: "Processing failed - no output generated" });
+    }
 
-    const command = `python3 ${pythonScript} ${inputPath} ${outputPath}`;
+    console.log("Sending processed image");
 
-    exec(command, (err, stdout, stderr) => {
-      if (err) {
-        console.error("Python error:", stderr);
-        // Clean up on error
-        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-        return res.status(500).json({
-          error: "Error processing image",
-          details: stderr
-        });
-      }
-
-      // Send file
-      res.sendFile(path.resolve(outputPath), (sendErr) => {
-        // Always clean up
+    // Send the processed image
+    res.sendFile(path.resolve(outputPath), (sendErr) => {
+      // Clean up files
+      setTimeout(() => {
         if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
         if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-      });
+      }, 1000);
     });
-  } catch (error) {
-    console.error("Server error:", error);
-    res.status(500).json({ error: "Server error", details: error.message });
-  }
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Server error:", err);
+  res.status(500).json({ error: "Internal server error", message: err.message });
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log('CORS enabled for all origins');
+  console.log(`Test the API at http://localhost:${PORT}`);
 });
