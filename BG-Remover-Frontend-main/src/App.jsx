@@ -50,7 +50,7 @@ function App() {
 
     try {
       console.log('Starting upload to backend...');
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://aish-bg-remover-1.onrender.com';
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
       console.log('Backend URL:', backendUrl);
       const res = await fetch(`${backendUrl}/remove-bg`, {
         method: 'POST',
