@@ -5,22 +5,15 @@ from PIL import Image
 from io import BytesIO
 import os
 
+# Force rembg to use CPU only to save memory
+os.environ["RMBG_ORT_EXECUTION_PROVIDER"] = "CPUExecutionProvider"
+
 app = Flask(__name__)
 
-# Configure CORS before any routes
+# CORS setup
 app.config['CORS_HEADERS'] = 'Content-Type'
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Apply CORS with explicit settings
-CORS(app,
-     resources={r"/*": {
-         "origins": "*",
-         "allow_headers": ["Content-Type", "Authorization", "Access-Control-Allow-Credentials"],
-         "expose_headers": ["Content-Range", "Accept-Ranges"],
-         "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
-         "max_age": 3600
-     }})
-
-# Add CORS headers to every response
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -29,17 +22,15 @@ def after_request(response):
     response.headers.add('Access-Control-Max-Age', '3600')
     return response
 
+# Limit maximum image dimensions to save memory
+MAX_WIDTH = 1024
+MAX_HEIGHT = 1024
+
 @app.route('/', methods=['GET', 'OPTIONS'])
 def home():
     if request.method == 'OPTIONS':
         return _build_cors_preflight_response()
     return "Hello from Aish BG Remover!"
-
-@app.route('/test', methods=['POST', 'OPTIONS'])
-def test():
-    if request.method == 'OPTIONS':
-        return _build_cors_preflight_response()
-    return jsonify({"message": "CORS is working!"}), 200
 
 @app.route('/remove-bg', methods=['POST', 'OPTIONS'])
 def remove_background():
@@ -47,9 +38,6 @@ def remove_background():
         return _build_cors_preflight_response()
 
     try:
-        # Log the request
-        print(f"Received request from origin: {request.headers.get('Origin')}")
-
         if 'image' not in request.files:
             return jsonify({'error': 'No image file provided'}), 400
 
@@ -57,10 +45,11 @@ def remove_background():
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
 
-        print(f"Processing image: {file.filename}")
-
-        # Process image
+        # Open and resize image to fit memory limit
         input_image = Image.open(file.stream)
+        input_image.thumbnail((MAX_WIDTH, MAX_HEIGHT))
+
+        # Remove background
         output_image = remove(input_image)
 
         # Convert to bytes
@@ -68,19 +57,20 @@ def remove_background():
         output_image.save(img_io, format='PNG')
         img_io.seek(0)
 
-        # Return with explicit CORS headers
+        # Clean up large objects
+        input_image.close()
+        output_image.close()
+
         response = make_response(send_file(
             img_io,
             mimetype='image/png',
             as_attachment=False,
             download_name='removed-bg.png'
         ))
-
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
 
     except Exception as e:
-        print(f"Error processing image: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 def _build_cors_preflight_response():
@@ -93,5 +83,4 @@ def _build_cors_preflight_response():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"Starting Flask app on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
