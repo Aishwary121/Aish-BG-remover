@@ -144,77 +144,95 @@ import fs from "fs";
 import { exec } from "child_process";
 import path from "path";
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Middleware
-app.use(express.json());
+// IMPORTANT: CORS first, before any routes!
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) return callback(null, true);
 
-// CRITICAL: CORS configuration BEFORE routes
-const corsOptions = {
-  origin: [
-    'https://aish-bg-remover-gik8.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:5174'
-  ],
+    const allowedOrigins = [
+      'https://aish-bg-remover-gik8.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:5174'
+    ];
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200
-};
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-app.use(cors(corsOptions));
+app.use(express.json());
 
-// Test route
+// Preflight handling
+app.options('*', cors());
+
 app.get("/", (req, res) => {
   res.send("BG Remover API is running!");
 });
 
-// Test route for debugging
-app.get("/remove-bg", (req, res) => {
-  res.json({ error: "Please use POST method to upload image" });
+app.get("/test", (req, res) => {
+  res.json({ status: "API working", cors: "enabled" });
 });
 
 const upload = multer({ dest: "uploads/" });
 
-// Ensure directories exist
-if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
-if (!fs.existsSync("outputs")) fs.mkdirSync("outputs");
+// Create directories
+['uploads', 'outputs'].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+});
 
-// Main API route
-app.post("/remove-bg", upload.single("image"), (req, res) => {
-  console.log("POST request received");
+app.post("/remove-bg", upload.single("image"), async (req, res) => {
+  try {
+    console.log("Request received from:", req.headers.origin);
 
-  if (!req.file) {
-    return res.status(400).json({ error: "No image uploaded" });
-  }
-
-  const inputPath = req.file.path;
-  const outputPath = `outputs/${req.file.filename}.png`;
-
-  const pythonScript = path.join(__dirname, 'remove_bg.py');
-  const command = `python3 ${pythonScript} ${inputPath} ${outputPath}`;
-
-  exec(command, (err, stdout, stderr) => {
-    if (err) {
-      console.error("Python error:", stderr);
-      return res.status(500).json({ error: "Error processing image", details: stderr });
+    if (!req.file) {
+      return res.status(400).json({ error: "No image uploaded" });
     }
 
-    res.sendFile(path.resolve(outputPath), (err) => {
-      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    const inputPath = req.file.path;
+    const outputPath = path.join('outputs', `${req.file.filename}.png`);
+    const pythonScript = path.join(__dirname, 'remove_bg.py');
+
+    const command = `python3 ${pythonScript} ${inputPath} ${outputPath}`;
+
+    exec(command, (err, stdout, stderr) => {
+      if (err) {
+        console.error("Python error:", stderr);
+        // Clean up on error
+        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        return res.status(500).json({
+          error: "Error processing image",
+          details: stderr
+        });
+      }
+
+      // Send file
+      res.sendFile(path.resolve(outputPath), (sendErr) => {
+        // Always clean up
+        if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+      });
     });
-  });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ error: "Server error", details: error.message });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('CORS enabled for all origins');
 });
