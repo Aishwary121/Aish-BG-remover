@@ -49,7 +49,7 @@ function App() {
     formData.append('image', image);
 
     try {
-      const res = await fetch('https://aish-bg-remover.onrender.com/remove-bg', {
+      const res = await fetch('https://aish-bg-remover-1.onrender.com/remove-bg', {
         method: 'POST',
         body: formData,
         // Let browser handle CORS automatically
