@@ -49,11 +49,14 @@ function App() {
     formData.append('image', image);
 
     try {
-      const res = await fetch('https://aish-bg-remover-1.onrender.com/remove-bg', {
+      console.log('Starting upload to backend...');
+      const apiUrl = import.meta.env.VITE_API_URL || 'https://aish-bg-remover-1.onrender.com';
+      const res = await fetch(`${apiUrl}/remove-bg`, {
         method: 'POST',
         body: formData,
         // Let browser handle CORS automatically
       });
+      console.log('Fetch response status:', res.status);
       
       const blob = await res.blob();
       setResult(URL.createObjectURL(blob));
