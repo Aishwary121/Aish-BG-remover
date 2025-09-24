@@ -153,16 +153,32 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Middleware
 app.use(express.json());
 
-// CORS configuration for production
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
-}));
+// CRITICAL: CORS configuration BEFORE routes
+const corsOptions = {
+  origin: [
+    'https://aish-bg-remover-gik8.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:5174'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
+};
 
+app.use(cors(corsOptions));
+
+// Test route
 app.get("/", (req, res) => {
   res.send("BG Remover API is running!");
+});
+
+// Test route for debugging
+app.get("/remove-bg", (req, res) => {
+  res.json({ error: "Please use POST method to upload image" });
 });
 
 const upload = multer({ dest: "uploads/" });
@@ -171,15 +187,17 @@ const upload = multer({ dest: "uploads/" });
 if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
 if (!fs.existsSync("outputs")) fs.mkdirSync("outputs");
 
+// Main API route
 app.post("/remove-bg", upload.single("image"), (req, res) => {
+  console.log("POST request received");
+
   if (!req.file) {
-    return res.status(400).send("No image uploaded");
+    return res.status(400).json({ error: "No image uploaded" });
   }
 
   const inputPath = req.file.path;
   const outputPath = `outputs/${req.file.filename}.png`;
 
-  // Fix: Use python3 for Render and proper path
   const pythonScript = path.join(__dirname, 'remove_bg.py');
   const command = `python3 ${pythonScript} ${inputPath} ${outputPath}`;
 
@@ -190,7 +208,6 @@ app.post("/remove-bg", upload.single("image"), (req, res) => {
     }
 
     res.sendFile(path.resolve(outputPath), (err) => {
-      // Clean up files
       if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
       if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     });
